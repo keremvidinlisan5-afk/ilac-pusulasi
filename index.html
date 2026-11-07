@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>İlaç Pusulası</title>
+<meta name="description" content="İlaç adı, etken madde ya da barkodla hızlı ilaç arama">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#f5f6f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111615" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="İlaç Pusulası">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<style>*,*::before,*::after{box-sizing:border-box}body{margin:0;-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}img{max-width:100%}[hidden]{display:none!important}input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;display:none}</style>
+</head>
+<body>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&family=Source+Serif+4:opsz,wght@8..60,600&display=swap">
+<style>
+/* Layout: arama çubuğu üstte sabit; geniş ekranda liste + detay yan yana, telefonda liste -> detay sayfası. */
+:root {
+  --bg: #f5f6f4;
+  --surface: #ffffff;
+  --fg: #16201d;
+  --muted: #5b6763;
+  --faint: #8d9894;
+  --line: rgba(22, 32, 29, 0.08);
+  --chip: rgba(22, 32, 29, 0.06);
+  --accent: #128a6c;
+  --warn: #d9771f;
+  --font-display: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, sans-serif;
+  --font-serif: ui-serif, "New York", "Source Serif 4", Georgia, serif;
+  --font-body: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111615; --surface: #1a2120; --fg: #eef3f1; --muted: #a3afab; --faint: #6f7b77;
+    --line: rgba(238, 243, 241, 0.09); --chip: rgba(238, 243, 241, 0.08); --accent: #3cc49f; --warn: #f0a050;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111615; --surface: #1a2120; --fg: #eef3f1; --muted: #a3afab; --faint: #6f7b77;
+  --line: rgba(238, 243, 241, 0.09); --chip: rgba(238, 243, 241, 0.08); --accent: #3cc49f; --warn: #f0a050;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; -webkit-text-size-adjust: 100%; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+
+.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 14px 12px; border-bottom: 1px solid var(--line);
+}
+.searchbox { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 0 14px; max-width: 1180px; margin: 0 auto; }
+.searchbox svg { flex: none; color: var(--faint); }
+#q { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font-family: var(--font-display); font-weight: 700; font-size: clamp(19px, 5vw, 28px); padding-block: 13px; }
+#q::placeholder { color: var(--faint); font-weight: 600; }
+#clear { color: var(--faint); font-size: 22px; line-height: 1; padding: 6px; }
+.count { font-family: var(--font-display); font-size: 13px; color: var(--muted); white-space: nowrap; }
+
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.split { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 24px; padding-block: 16px 40px; }
+.list { display: flex; flex-direction: column; gap: 2px; align-self: start; position: sticky; top: calc(env(safe-area-inset-top, 0px) + 86px); max-height: calc(100vh - 110px); overflow-y: auto; }
+@media (max-width: 860px) {
+  .split { display: block; padding-block: 8px 32px; }
+  .list { position: static; max-height: none; overflow: visible; }
+  .split.detail-open .list { display: none; }
+  .split:not(.detail-open) .detail { display: none; }
+}
+@media (min-width: 861px) { .back { display: none !important; } }
+
+.row { display: flex; gap: 12px; align-items: center; text-align: left; width: 100%; padding: 10px 12px; border-radius: 12px; }
+.row:hover { background: var(--chip); }
+.row[aria-current="true"] { background: var(--surface); box-shadow: 0 0 0 1px var(--line); }
+.row .bar { width: 5px; align-self: stretch; border-radius: 3px; flex: none; }
+.row .txt { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.row .brand { font-family: var(--font-display); font-weight: 800; font-size: 17px; display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.row .dose { font-size: 12px; font-weight: 700; padding: 1px 7px; border-radius: 99px; background: var(--chip); }
+.row .full, .row .ing { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .full { color: var(--muted); }
+.row .ing { font-weight: 600; }
+.row.suspended { opacity: 0.55; }
+.pause { color: var(--warn); font-size: 12px; font-weight: 700; }
+
+.detail { min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.back { align-self: flex-start; font-family: var(--font-display); font-weight: 700; color: var(--accent); padding: 6px 0; font-size: 16px; }
+.tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.tag { font-family: var(--font-display); font-weight: 700; font-size: 13px; padding: 5px 11px; border-radius: 99px; }
+h1.name { font-family: var(--font-display); font-weight: 900; font-size: clamp(36px, 9vw, 56px); line-height: 1.02; margin: 4px 0 0; letter-spacing: -0.01em; text-wrap: balance; overflow-wrap: anywhere; }
+h1.name .d { font-size: 0.55em; font-weight: 800; margin-left: 10px; white-space: nowrap; }
+.sub { color: var(--muted); font-size: 16px; font-weight: 500; overflow-wrap: anywhere; }
+.firm { color: var(--faint); font-size: 13px; }
+
+.hero { border-radius: 22px; padding: 22px 22px 24px; }
+.eyebrow { font-family: var(--font-display); font-weight: 800; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }
+.hero p { font-family: var(--font-serif); font-weight: 600; font-size: clamp(24px, 5.6vw, 32px); line-height: 1.22; margin: 8px 0 0; text-wrap: pretty; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 14px; align-items: start; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card .eyebrow { display: flex; align-items: center; gap: 7px; }
+.big { font-family: var(--font-display); font-weight: 800; font-size: 26px; line-height: 1.15; }
+.dose-a { font-family: var(--font-display); font-weight: 700; font-size: 21px; line-height: 1.3; }
+.dose-c { font-family: var(--font-display); font-weight: 600; font-size: 17px; line-height: 1.35; }
+.lbl { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 2px; }
+.note { color: var(--muted); font-size: 14.5px; }
+ul.dots { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+ul.dots li { display: flex; gap: 10px; align-items: baseline; font-size: 17px; font-weight: 500; line-height: 1.35; }
+ul.dots li::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--dot, var(--muted)); flex: none; transform: translateY(-2px); }
+ul.dots.small li { font-size: 15.5px; }
+
+.forms { display: flex; flex-direction: column; gap: 14px; }
+.form-row { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 12px; align-items: start; }
+.form-name { font-family: var(--font-display); font-weight: 800; font-size: 16px; padding-top: 8px; }
+@media (max-width: 600px) { .form-row { grid-template-columns: 1fr; gap: 6px; } .form-name { padding-top: 0; } }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.fchip { text-align: left; padding: 8px 13px; border-radius: 11px; display: flex; flex-direction: column; gap: 1px; border: 1.5px solid transparent; max-width: 100%; }
+.fchip .mk { font-family: var(--font-display); font-size: 11px; font-weight: 800; opacity: 0.75; }
+.fchip .dv { font-family: var(--font-display); font-size: 18px; font-weight: 800; }
+.fchip .ig { font-size: 11px; font-weight: 600; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+.fchip.cur { color: #fff; cursor: default; }
+.fchip.other-ing { border-color: color-mix(in srgb, var(--warn) 65%, transparent); }
+
+.echip { text-align: left; padding: 7px 12px; border-radius: 10px; background: var(--chip); display: flex; flex-direction: column; gap: 1px; max-width: 100%; }
+.echip b { font-family: var(--font-display); font-weight: 800; font-size: 15px; }
+.echip.same b { font-size: 17px; }
+.echip .dd { font-size: 12px; font-weight: 600; color: var(--muted); margin-left: 4px; }
+.echip small { font-size: 11px; color: var(--muted); }
+.subhead { font-size: 14.5px; font-weight: 700; color: var(--muted); }
+.more { font-size: 13px; color: var(--faint); }
+
+.packs { display: flex; flex-direction: column; gap: 6px; }
+.pack { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; }
+.pack code { font-family: var(--font-mono); color: var(--muted); user-select: all; font-variant-numeric: tabular-nums; }
+.foot { font-size: 12.5px; color: var(--faint); line-height: 1.5; }
+.foot a { color: var(--accent); }
+
+.welcome { padding-block: 40px 48px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; }
+.welcome h2 { font-family: var(--font-display); font-weight: 900; font-size: clamp(38px, 10vw, 58px); margin: 0; line-height: 1; }
+.welcome p { font-family: var(--font-serif); font-size: clamp(18px, 4.6vw, 22px); color: var(--muted); margin: 0; }
+.stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 30px; margin-top: 10px; }
+.stat b { display: block; font-family: var(--font-display); font-weight: 900; font-size: 28px; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 13px; color: var(--muted); }
+.try { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+.try button { font-family: var(--font-display); font-weight: 800; font-size: 16px; padding: 9px 16px; border-radius: 99px; background: var(--surface); border: 1px solid var(--line); }
+.tip { font-size: 13px; color: var(--faint); max-width: 34em; }
+.empty { padding: 30px 6px; color: var(--muted); font-family: var(--font-display); font-weight: 700; font-size: 18px; }
+.loading { padding: 60px 0; text-align: center; color: var(--muted); font-family: var(--font-display); font-weight: 700; }
+@media (prefers-reduced-motion: no-preference) { .detail { animation: rise .18s ease-out; } @keyframes rise { from { transform: translateY(6px); } to { transform: none; } } }
+</style>
+
+<header class="top">
+  <label class="searchbox" for="q">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
+    <input id="q" type="search" inputmode="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="İlaç adı, etken madde ya da barkod…" aria-label="İlaç ara">
+    <span class="count" id="count"></span>
+    <button id="clear" type="button" aria-label="Aramayı temizle" hidden>×</button>
+  </label>
+</header>
+
+<main class="wrap" id="main"><div class="loading">İlaç listesi yükleniyor…</div></main>
+
+<script>
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// Türkçe karakterleri ve büyük/küçük harfi yok sayan biçim ("ŞURUP" == "surup")
+const KATLA = { "ı": "i", "î": "i", "ì": "i", "í": "i", "ş": "s", "ğ": "g", "ü": "u", "û": "u", "ö": "o", "ç": "c", "â": "a", "à": "a", "á": "a", "é": "e", "è": "e" };
+const katla = s => String(s || "").toLocaleLowerCase("tr-TR").replace(/[̇®™]/g, "").replace(/[ıîìíşğüûöçâàáéè]/g, c => KATLA[c]);
+const dozAnahtari = d => katla(d).replace(/ /g, "");
+const dozSayisi = d => { const m = String(d).replace(/,/g, ".").match(/\d+(?:\.\d+)?/); return m ? parseFloat(m[0]) : Infinity; };
+const ilkKelime = s => katla(s).split(/[^\p{L}\p{N}]+/u).filter(Boolean)[0] || "";
+const aileAnahtari = u => ilkKelime(u.f) + "|" + ilkKelime(u.m);
+
+const SISTEM = {
+  A: ["Sindirim ve metabolizma", "#D9822B"], B: ["Kan ve pıhtılaşma", "#C2364B"], C: ["Kalp ve damar", "#E5484D"],
+  D: ["Cilt", "#B7794E"], G: ["Ürogenital ve cinsiyet hormonları", "#C94F8F"], H: ["Hormonlar", "#9461D1"],
+  J: ["Enfeksiyon (antibiyotik, antiviral…)", "#23966A"], L: ["Kanser ve bağışıklık", "#6E56E8"], M: ["Kas ve iskelet", "#2F7FC1"],
+  N: ["Sinir sistemi", "#5568E8"], P: ["Parazit", "#5F8433"], R: ["Solunum", "#1F9AAE"], S: ["Göz ve kulak", "#1593CC"], V: ["Çeşitli", "#6F7C8A"],
+};
+const sistem = k => (k && !k.startsWith("X:") && SISTEM[k[0]]) ? { ad: SISTEM[k[0]][0], renk: SISTEM[k[0]][1] } : { ad: "Sınıflandırılmamış", renk: "#7A8794" };
+const receteRengi = r => { const k = katla(r);
+  return k.includes("recetesiz") || k.includes("otc") ? "#23966A" : k.includes("kirmizi") ? "#E5484D" : k.includes("yesil") ? "#2E9E4F"
+    : k.includes("mor") ? "#8B5CF6" : k.includes("turuncu") ? "#E38B24" : k.includes("hastane") ? "#6F7C8A" : "#3B82C4"; };
+const tint = (hex, a) => `color-mix(in srgb, ${hex} ${Math.round(a * 100)}%, transparent)`;
+
+// Ürün adından farmasötik form. Sıra önemli: "süspansiyon için toz" süspansiyondur.
+const FORMLAR = [
+  ["Efervesan tablet", ["efervesan"]], ["Ağızda dağılan tablet", ["agizda dagilan", "dilalti", "dil alti", "orodispers"]],
+  ["Çiğneme tableti", ["cigneme"]], ["Uzatılmış salımlı tablet", ["uzatilmis salim", "kontrollu salim", "modifiye salim", "yavas salim", "retard"]],
+  ["Film tablet", ["film tablet", "film kapli", "film-kapli"]], ["Tablet", ["tablet", "draje"]], ["Kapsül", ["kapsul"]],
+  ["Şurup", ["surup"]], ["Süspansiyon", ["suspansiyon", "suspansion"]], ["Göz", ["goz "]], ["Kulak", ["kulak"]], ["Burun", ["burun", "nazal"]],
+  ["İnhaler", ["inhal", "turbuhaler", "diskus"]], ["Damla", ["damla"]],
+  ["Enjeksiyon / infüzyon", ["enjeks", "enjekt", "infuz", "ampul", "flakon", "kalem", "i.v", "i.m"]],
+  ["Saşe / granül", ["sase", "granul"]], ["Toz", ["toz"]], ["Krem", ["krem"]], ["Jel", ["jel"]], ["Merhem / pomad", ["merhem", "pomad"]],
+  ["Losyon", ["losyon"]], ["Sprey", ["sprey", "aerosol"]], ["Gargara", ["gargara", "kollutuvar"]], ["Fitil / ovül", ["supozituvar", "ovul", "fitil"]],
+  ["Bant / flaster", ["flaster", "transdermal", "bant"]], ["Çözelti", ["solusyon", "cozelti", "solution"]],
+];
+const formCache = new Map();
+function form(ad) {
+  let f = formCache.get(ad); if (f) return f;
+  const k = katla(ad); const i = FORMLAR.findIndex(([, a]) => a.some(x => k.includes(x)));
+  f = i < 0 ? { ad: "Diğer", sira: FORMLAR.length } : { ad: FORMLAR[i][0], sira: i };
+  formCache.set(ad, f); return f;
+}
+
+let V = null, U = [], idx = {};
+const state = { q: "", sonuc: [], sec: -1, gecmis: [] };
+
+async function yukle() {
+  let veri;
+  try {
+    if (!("DecompressionStream" in window)) throw 0;
+    // veri.gz.txt: gzip'lenmiş JSON'un base64 hâli (~1,3 MB); açılamazsa düz veri.json (5 MB) kullanılır
+    const r = await fetch("veri.gz.txt"); if (!r.ok) throw 0;
+    const ikili = Uint8Array.from(atob((await r.text()).replace(/\s+/g, "")), c => c.charCodeAt(0));
+    veri = await new Response(new Blob([ikili]).stream().pipeThrough(new DecompressionStream("gzip"))).json();
+  } catch {
+    veri = await (await fetch("veri.json")).json();
+  }
+  V = veri; U = veri.urunler;
+  const marka = [], ad = [], etken = [], saman = [], gruplar = new Map(), aileler = new Map();
+  U.forEach((u, i) => {
+    marka[i] = katla(u.m); ad[i] = katla(u.a);
+    etken[i] = katla(u.e + " " + ((u.k && V.kartlar[u.k]?.ad) || ""));
+    saman[i] = ad[i] + " " + etken[i] + " " + katla(u.f);
+    if (u.k) { if (!gruplar.has(u.k)) gruplar.set(u.k, []); gruplar.get(u.k).push(i); }
+    const a = aileAnahtari(u); if (!aileler.has(a)) aileler.set(a, []); aileler.get(a).push(i);
+  });
+  idx = { marka, ad, etken, saman, gruplar, aileler };
+}
+
+function ara(sorgu, limit = 120) {
+  const q = katla(sorgu).trim(); if (!q) return [];
+  if (q.length >= 5 && /^\d+$/.test(q)) {
+    const r = []; for (let i = 0; i < U.length && r.length < limit; i++) if (U[i].p.some(p => (p[1] || "").startsWith(q))) r.push(i);
+    return r;
+  }
+  const parca = q.split(/\s+/); const bulunan = [];
+  for (let i = 0; i < U.length; i++) {
+    const s = idx.saman[i]; if (!parca.every(p => s.includes(p))) continue;
+    let puan = idx.marka[i] === q ? 0 : idx.marka[i].startsWith(q) ? 1 : idx.ad[i].startsWith(q) ? 2 : idx.etken[i].startsWith(q) ? 3 : idx.ad[i].includes(q) ? 4 : 5;
+    if (U[i].s === 1) puan += 10;
+    bulunan.push([puan, i]);
+  }
+  bulunan.sort((a, b) => a[0] - b[0] || (idx.ad[a[1]] < idx.ad[b[1]] ? -1 : 1));
+  return bulunan.slice(0, limit).map(x => x[1]);
+}
+
+function aile(i) {
+  const u = U[i], gor = new Set();
+  return (idx.aileler.get(aileAnahtari(u)) || []).slice()
+    .sort((a, b) => (a === i ? 0 : 1) - (b === i ? 0 : 1) || U[a].s - U[b].s)
+    .filter(j => { const x = U[j], k = [katla(x.m), form(x.a).ad, dozAnahtari(x.d), x.k || ""].join("|"); if (gor.has(k)) return false; gor.add(k); return true; })
+    .sort((a, b) => form(U[a].a).sira - form(U[b].a).sira || dozSayisi(U[a].d) - dozSayisi(U[b].d) || (U[a].a < U[b].a ? -1 : 1));
+}
+
+function esdegerler(i) {
+  const u = U[i]; if (!u.k) return { ayni: [], diger: [] };
+  const ak = aileAnahtari(u);
+  const d = (idx.gruplar.get(u.k) || []).filter(j => aileAnahtari(U[j]) !== ak)
+    .sort((a, b) => U[a].s - U[b].s || (U[a].m < U[b].m ? -1 : 1));
+  const an = dozAnahtari(u.d);
+  if (!an) return { ayni: [], diger: d };
+  return { ayni: d.filter(j => dozAnahtari(U[j].d) === an), diger: d.filter(j => dozAnahtari(U[j].d) !== an) };
+}
+
+// ---------- Görünüm ----------
+const main = $("#main"), qEl = $("#q"), countEl = $("#count"), clearEl = $("#clear");
+const ICON = {
+  atom: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="2"/><ellipse cx="12" cy="12" rx="10" ry="4"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)"/></svg>',
+  clock: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4 10-10"/></svg>',
+  warn: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.5" stroke-linecap="round"/></svg>',
+  pulse: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>',
+  gear: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>',
+  swap: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v14l-3-3M17 20V6l3 3"/></svg>',
+  grid: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="10" y="3" width="5" height="5" rx="1"/><rect x="17" y="3" width="5" height="5" rx="1"/><rect x="3" y="10" width="5" height="5" rx="1"/><rect x="10" y="10" width="5" height="5" rx="1"/><rect x="17" y="10" width="5" height="5" rx="1"/><rect x="3" y="17" width="5" height="5" rx="1"/><rect x="10" y="17" width="5" height="5" rx="1"/><rect x="17" y="17" width="5" height="5" rx="1"/></svg>',
+  barcode: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5v14M7 5v14M11 5v14M13 5v14M17 5v14M20 5v14"/></svg>',
+};
+
+const card = (baslik, ikon, renk, ic) => `<section class="card"><div class="eyebrow" style="color:${renk}">${ICON[ikon]}${esc(baslik)}</div>${ic}</section>`;
+const dots = (liste, renk, small) => `<ul class="dots${small ? " small" : ""}" style="--dot:${renk}">${liste.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;
+
+function satir(i, aktif) {
+  const u = U[i], s = sistem(u.k);
+  return `<button class="row${u.s === 1 ? " suspended" : ""}" data-i="${i}" ${aktif ? 'aria-current="true"' : ""}>
+    <span class="bar" style="background:${s.renk}"></span>
+    <span class="txt"><span class="brand">${esc(u.m)}${u.d ? `<span class="dose">${esc(u.d)}</span>` : ""}${u.s === 1 ? '<span class="pause">askıda</span>' : ""}</span>
+    <span class="full">${esc(u.a)}</span><span class="ing" style="color:${s.renk}">${esc(u.e || "—")}</span></span></button>`;
+}
+
+function formlarBolumu(i, s) {
+  const a = aile(i); if (a.length < 2) return "";
+  const u = U[i], gruplu = new Map();
+  a.forEach(j => { const f = form(U[j].a).ad; if (!gruplu.has(f)) gruplu.set(f, []); gruplu.get(f).push(j); });
+  const satirlar = [...gruplu].map(([f, js]) => `<div class="form-row">
+      <div class="form-name" style="${f === form(u.a).ad ? `color:${s.renk}` : ""}">${esc(f)}</div>
+      <div class="chips">${js.map(j => {
+        const x = U[j], cur = j === i, fm = katla(x.m) !== katla(u.m), fe = x.k !== u.k;
+        const ing = fe ? ((x.k && V.kartlar[x.k]?.ad) || x.e) : "";
+        return `<button class="fchip${cur ? " cur" : ""}${fe ? " other-ing" : ""}" data-i="${j}" ${cur ? 'aria-current="true"' : ""}
+          style="background:${cur ? s.renk : tint(s.renk, 0.11)}" title="${esc(x.a + (fe ? "\nFarklı etken madde: " + ing : ""))}">
+          ${fm ? `<span class="mk">${esc(x.m)}</span>` : ""}<span class="dv">${esc(x.d || "Tek doz")}${x.s === 1 ? ' <span class="pause">askıda</span>' : ""}</span>
+          ${fe ? `<span class="ig">${esc(ing)}</span>` : ""}</button>`;
+      }).join("")}</div></div>`).join("");
+  return card(`${u.m} · tüm formlar ve dozlar — ${a.length} ürün`, "grid", s.renk, `<div class="forms">${satirlar}</div>`);
+}
+
+function esdegerBolumu(i, s) {
+  const u = U[i], e = esdegerler(i), firma = f => esc(f.split(" ").slice(0, 2).join(" "));
+  const chip = (j, same) => { const x = U[j];
+    return `<button class="echip${same ? " same" : ""}" data-i="${j}" style="${same ? `background:${tint(s.renk, 0.12)}` : ""}" title="${esc(x.a)}">
+      <span><b>${esc(x.m)}</b>${!same && x.d ? `<span class="dd">${esc(x.d)}</span>` : ""}${x.s === 1 ? ' <span class="pause">askıda</span>' : ""}</span><small>${firma(x.f)}</small></button>`; };
+  let ic = "";
+  if (!e.ayni.length && !e.diger.length) ic = `<div class="note">Türkiye'de bu etken maddeyle ruhsatlı başka marka yok.</div>`;
+  if (e.ayni.length) ic += `<div class="subhead">Aynı doz (${esc(u.d)}) — ${e.ayni.length} ürün</div><div class="chips">${e.ayni.map(j => chip(j, true)).join("")}</div>`;
+  if (e.diger.length) ic += `<div class="subhead">Diğer markaların diğer doz ve formları — ${e.diger.length} ürün</div><div class="chips">${e.diger.slice(0, 60).map(j => chip(j, false)).join("")}</div>`
+    + (e.diger.length > 60 ? `<div class="more">+${e.diger.length - 60} ürün daha</div>` : "");
+  return card("Eşdeğerler · aynı etken maddeli diğer markalar", "swap", s.renk, ic);
+}
+
+function detay(i) {
+  const u = U[i], k = u.k ? V.kartlar[u.k] : null, s = sistem(u.k), atc = u.k && !u.k.startsWith("X:") ? u.k : null;
+  const tags = `<span class="tag" style="color:${s.renk};background:${tint(s.renk, 0.13)}">${esc(s.ad)}</span>`
+    + (k?.recete ? `<span class="tag" style="color:${receteRengi(k.recete)};background:${tint(receteRengi(k.recete), 0.13)}">${esc(k.recete)}</span>` : "")
+    + (u.s === 1 ? `<span class="tag" style="color:var(--warn);background:${tint("#d9771f", 0.13)}">Ruhsatı askıda</span>` : "");
+  let doz = "";
+  if (k?.doz_yetiskin) doz += `<div><div class="lbl">Yetişkin</div><div class="dose-a">${esc(k.doz_yetiskin)}</div></div>`;
+  if (k?.doz_cocuk) doz += `<div><div class="lbl">Çocuk</div><div class="dose-c">${esc(k.doz_cocuk)}</div></div>`;
+  if (k?.kullanim) doz += `<div class="note">${esc(k.kullanim)}</div>`;
+  if (!k?.doz_yetiskin && !k?.doz_cocuk) doz += `<div class="note">Doz bilgisi için ürünün KÜB/KT belgesine bakın.</div>`;
+  const etkenAd = k?.ad || u.e || "Belirtilmemiş";
+  const etken = `<div class="big">${esc(etkenAd)}</div>`
+    + (u.e && katla(u.e) !== katla(etkenAd) ? `<div class="note">${esc(u.e)}</div>` : "")
+    + `<div class="tags">${k?.sinif ? `<span class="tag" style="color:${s.renk};background:${tint(s.renk, 0.12)}">${esc(k.sinif)}</span>` : ""}${atc ? `<span class="tag" style="color:var(--muted);background:var(--chip)">ATC ${esc(atc)}</span>` : ""}</div>`;
+  return `<button class="back" type="button" data-back>‹ Sonuçlar</button>
+    ${state.gecmis.length ? `<button class="back" type="button" data-geri style="display:inline-block">‹ Geri: ${esc(U[state.gecmis.at(-1)].m)}</button>` : ""}
+    <div><div class="tags">${tags}</div>
+      <h1 class="name">${esc(u.m)}${u.d ? `<span class="d" style="color:${s.renk}">${esc(u.d)}</span>` : ""}</h1>
+      <div class="sub">${esc(u.a)}</div><div class="firm">${esc(u.f)}</div></div>
+    ${formlarBolumu(i, s)}
+    <section class="hero" style="background:linear-gradient(135deg, ${tint(s.renk, 0.2)}, ${tint(s.renk, 0.07)})">
+      <div class="eyebrow" style="color:${s.renk}">Ne işe yarar</div>
+      <p>${esc(k?.ozet || "Bu etken madde için bilgi kartı yok. Etken madde ve eşdeğer bilgisi aşağıda.")}</p></section>
+    <div class="grid">
+      ${card("Etken madde", "atom", s.renk, etken)}
+      ${card("Önerilen doz", "clock", s.renk, doz)}
+      ${k?.endikasyonlar?.length ? card("Endikasyonlar · ne için kullanılır", "check", s.renk, dots(k.endikasyonlar, s.renk)) : ""}
+      ${k?.uyarilar?.length ? card("Dikkat", "warn", "var(--warn)", dots(k.uyarilar, "var(--warn)")) : ""}
+      ${k?.yan_etkiler?.length ? card("Sık yan etkiler", "pulse", "var(--muted)", dots(k.yan_etkiler, "var(--muted)", true)) : ""}
+      ${k?.mekanizma ? card("Nasıl etki eder", "gear", "var(--muted)", `<div style="font-size:15.5px;line-height:1.45">${esc(k.mekanizma)}</div>`) : ""}
+    </div>
+    ${esdegerBolumu(i, s)}
+    ${card("Ambalajlar ve barkodlar", "barcode", "var(--muted)", `<div class="packs">${u.p.map(p => `<div class="pack"><span>${esc(p[0] || "Tek ambalaj")}</span><code>${esc(p[1] || "")}</code></div>`).join("")}</div>`)}
+    <p class="foot">Ürün, etken madde, barkod ve eşdeğer bilgisi TİTCK Ruhsatlı Ürünler Listesi'nden (${esc(V.liste_tarihi)}). Endikasyon, doz, uyarılar ve reçete türü etken madde düzeyinde özet bilgidir; ürüne özgü doz ve reçete durumu için KÜB/KT ve Medula esas alınmalıdır.
+      <a href="https://www.titck.gov.tr/kubkt" target="_blank" rel="noopener">TİTCK KÜB/KT sorgulama →</a></p>`;
+}
+
+function karsilama() {
+  const ornek = ["Parol", "Augmentin", "Arveles", "Majezik", "Cipralex"];
+  return `<div class="welcome">
+    <h2>İlaç Pusulası</h2><p>Yazmaya başlayın, sonuç anında gelir.</p>
+    <div class="stats"><div class="stat"><b>${U.length.toLocaleString("tr-TR")}</b><span>ürün</span></div>
+      <div class="stat"><b>${idx.gruplar.size.toLocaleString("tr-TR")}</b><span>etken madde grubu</span></div>
+      <div class="stat"><b>${Object.keys(V.kartlar).length.toLocaleString("tr-TR")}</b><span>bilgi kartı</span></div></div>
+    <div class="try">${ornek.map(o => `<button type="button" data-ornek="${o}">${o}</button>`).join("")}</div>
+    <p class="tip">İlaç adı, etken madde (ör. “parasetamol”) ya da kutudaki barkod numarasıyla arayabilirsiniz. Kaynak: TİTCK, ${esc(V.liste_tarihi)}.</p></div>`;
+}
+
+const darEkran = () => matchMedia("(max-width: 860px)").matches;
+
+function ciz() {
+  const bos = !state.q.trim();
+  countEl.textContent = bos ? "" : (state.sonuc.length === 120 ? "120+" : state.sonuc.length) + " sonuç";
+  clearEl.hidden = bos && state.sec < 0;
+  if (bos && state.sec < 0) { main.innerHTML = karsilama(); return; }
+  const acik = state.sec >= 0 && (state.detayAcik || !darEkran());
+  main.innerHTML = `<div class="split${acik ? " detail-open" : ""}">
+    <nav class="list" aria-label="Sonuçlar">${state.sonuc.length ? state.sonuc.map(i => satir(i, i === state.sec)).join("") : '<div class="empty">Sonuç yok. Yazımı kontrol edin ya da etken madde adıyla deneyin.</div>'}</nav>
+    <article class="detail">${state.sec >= 0 ? detay(state.sec) : ""}</article></div>`;
+  $(".row[aria-current]", main)?.scrollIntoView({ block: "nearest" });
+}
+
+function aramaYap() {
+  state.sonuc = ara(state.q); state.sec = state.sonuc[0] ?? -1; state.gecmis = []; state.detayAcik = false; ciz();
+}
+
+function ac(i, { gecmiseEkle = false } = {}) {
+  if (gecmiseEkle && state.sec >= 0 && state.sec !== i) state.gecmis.push(state.sec);
+  if (!gecmiseEkle) state.gecmis = [];
+  state.sec = i; state.detayAcik = true; ciz();
+  if (darEkran()) { try { history.pushState({ d: 1 }, ""); } catch {} window.scrollTo(0, 0); }
+  else $(".detail", main)?.scrollIntoView?.({ block: "start" });
+}
+
+let zaman;
+qEl.addEventListener("input", () => { state.q = qEl.value; clearTimeout(zaman); zaman = setTimeout(aramaYap, U.length ? 60 : 0); });
+qEl.addEventListener("keydown", e => {
+  if (e.key === "Enter" && state.sonuc.length) { e.preventDefault(); ac(state.sec >= 0 ? state.sec : state.sonuc[0]); qEl.blur(); }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault(); const n = state.sonuc.indexOf(state.sec) + (e.key === "ArrowDown" ? 1 : -1);
+    if (state.sonuc[n] !== undefined) { state.sec = state.sonuc[n]; state.gecmis = []; ciz(); }
+  }
+  if (e.key === "Escape") temizle();
+});
+function temizle() { qEl.value = state.q = ""; state.sonuc = []; state.sec = -1; state.gecmis = []; state.detayAcik = false; ciz(); qEl.focus(); }
+clearEl.addEventListener("click", e => { e.preventDefault(); temizle(); });
+
+main.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.ornek) { qEl.value = state.q = b.dataset.ornek; aramaYap(); return; }
+  if ("back" in b.dataset) { state.detayAcik = false; ciz(); return; }
+  if ("geri" in b.dataset) { state.sec = state.gecmis.pop(); ciz(); return; }
+  if (b.dataset.i === undefined || b.classList.contains("cur")) return;
+  const i = +b.dataset.i;
+  ac(i, { gecmiseEkle: !b.classList.contains("row") });
+});
+addEventListener("popstate", () => { if (state.detayAcik && darEkran()) { state.detayAcik = false; ciz(); } });
+document.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "l")) { e.preventDefault(); qEl.focus(); qEl.select(); } });
+
+yukle().then(() => { ciz(); if (!matchMedia("(pointer: coarse)").matches) qEl.focus(); })
+  .catch(() => { main.innerHTML = '<div class="loading">İlaç listesi yüklenemedi. Sayfayı yenileyin.</div>'; });
+</script>
+
+
+<script>
+if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+</script>
+</body>
+</html>
